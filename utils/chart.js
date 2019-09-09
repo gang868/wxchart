@@ -1,4 +1,3 @@
-
 module.exports = {
   draw: init,
   saveCanvans: saveCanvans
@@ -47,8 +46,7 @@ var dataSet = {
     size: 10,
     data: []
   },
-  series: [
-    {
+  series: [{
       name: "",
       category: "bar",
       data: []
@@ -77,7 +75,7 @@ function initCanvas(page, canvasId) {
   var Sys = wx.getSystemInfoSync();
 
   chartOpt.chartWidth = Sys.windowWidth;
-  chartOpt.chartHeight = Sys.windowWidth * 0.8;//Canvas组件的宽高比
+  chartOpt.chartHeight = Sys.windowWidth * 0.8; //Canvas组件的宽高比
 
   chartOpt.legendWidth = dataSet.legend.size * 1.3;
   chartOpt.legendHeight = dataSet.legend.size * 0.8;
@@ -149,6 +147,13 @@ function checkData(data) {
 
   var minNum = Math.min.apply(null, value);
   var maxNum = Math.max.apply(null, value);
+  // gang868:增加Y轴最小刻度手动设置
+  if (data.yAxis != undefined) {
+    var yAxisMinMark = data.yAxis.minMark;
+    if (yAxisMinMark < minNum) {
+      minNum = yAxisMinMark;
+    }
+  }
   //计算Y轴刻度尺数据
   chartOpt.axisMark = util.calculateY(minNum, maxNum, 5);
 }
@@ -158,7 +163,10 @@ function checkData(data) {
 function drawChart(ctx) {
   drawBackground(ctx);
   drawTitle(ctx);
-  drawLegend(ctx);
+  // gang868: 只有一组数据时，legend不再绘制
+  if (dataSet.series.length > 1) {
+    drawLegend(ctx);
+  }
   if (!chartOpt.hideXYaxis) {
     drawXaxis(ctx);
     drawYaxis(ctx);
@@ -251,9 +259,9 @@ function drawLegend(ctx) {
   for (var i = 0; i < series.length; i++) {
     var names = series[i].name;
     var isPie = series[i].category == 'pie';
-    var textWidth = util.mesureText(isPie?names[0]:names, dataSet.xAxis.size);
+    var textWidth = util.mesureText(isPie ? names[0] : names, dataSet.xAxis.size);
     var legendWidth = chartOpt.legendWidth + textWidth + chartOpt.chartSpace * 2;
-    var startX = (chartOpt.chartWidth / 2) - (legendWidth * (isPie ?names.length:series.length)) / 2;
+    var startX = (chartOpt.chartWidth / 2) - (legendWidth * (isPie ? names.length : series.length)) / 2;
 
     if (series[i].category == 'pie') {
       for (var k = 0; k < names.length; k++) {
@@ -318,12 +326,14 @@ function drawCharts(ctx) {
     var barWidth = (chartOpt.right - chartOpt.axisLeft) / chartOpt.barLength;
     var barHeight = chartOpt.axisBottom - chartOpt.axisTop;
     var maxMark = chartOpt.axisMark[chartOpt.axisMark.length - 1];
+    // gang868: 折线图和柱状图中的Y轴与数据不对应的错误修正
+    var minMark = chartOpt.axisMark[0];
 
     if (category == "bar") {
       barWidth = barWidth - chartOpt.chartSpace;
-      drawBarChart(ctx, i, series, barWidth, barHeight, maxMark);
+      drawBarChart(ctx, i, series, barWidth, barHeight, minMark, maxMark);
     } else if (category == "line") {
-      drawLineChart(ctx, i, series, barWidth, barHeight, maxMark);
+      drawLineChart(ctx, i, series, barWidth, barHeight, minMark, maxMark);
     } else if (category == 'pie') {
       drawPieChart(ctx, i, series);
     }
@@ -332,12 +342,13 @@ function drawCharts(ctx) {
 /**
  * 绘制柱状图
  */
-function drawBarChart(ctx, i, series, barWidth, barHeight, maxMark) {
+function drawBarChart(ctx, i, series, barWidth, barHeight, minMark, maxMark) {
   var item = series[i];
   var itemWidth = barWidth / chartOpt.barNum;
 
   for (var k = 0; k < item.data.length; k++) {
-    var itemHeight = barHeight * (item.data[k] / maxMark);
+    // gang868: 原计算方法中只有在minMark为零
+    var itemHeight = barHeight * ((item.data[k] - minMark) / (maxMark - minMark));
     var x = (barWidth * k + chartOpt.axisLeft + k * chartOpt.chartSpace + (chartOpt.chartSpace / 2)) + (i * itemWidth);
     var y = chartOpt.axisBottom - itemHeight;
     var color = getColor(series.length <= 1 ? k : i);
@@ -350,14 +361,14 @@ function drawBarChart(ctx, i, series, barWidth, barHeight, maxMark) {
 /**
  * 绘制折线图
  */
-function drawLineChart(ctx, i, series, barWidth, barHeight, maxMark) {
+function drawLineChart(ctx, i, series, barWidth, barHeight, minMark, maxMark) {
   var item = series[i];
   var color = getColor(i);
   ctx.setLineWidth(2);
   ctx.setStrokeStyle(color);
   ctx.beginPath();
   for (var k = 0; k < item.data.length; k++) {
-    var point = getLinePoint(k, item, barWidth, barHeight, maxMark);
+    var point = getLinePoint(k, item, barWidth, barHeight, minMark, maxMark);
     if (k == 0) {
       ctx.moveTo(point.x, point.y);
     } else {
@@ -367,17 +378,22 @@ function drawLineChart(ctx, i, series, barWidth, barHeight, maxMark) {
   ctx.stroke();
   ctx.closePath();
   for (var k = 0; k < item.data.length; k++) {
-    var point = getLinePoint(k, item, barWidth, barHeight, maxMark);
+    var point = getLinePoint(k, item, barWidth, barHeight, minMark, maxMark);
     drawPoint(ctx, point.x, point.y, 3, color);
     drawPoint(ctx, point.x, point.y, 1, chartOpt.bgColor);
     drawToolTips(ctx, item.data[k], point.x, point.y - chartOpt.chartSpace, color);
   }
 }
-function getLinePoint(k, item, barWidth, barHeight, maxMark) {
+
+function getLinePoint(k, item, barWidth, barHeight, minMark, maxMark) {
   var x = barWidth * k + chartOpt.axisLeft + barWidth / 2;
-  var y = chartOpt.axisBottom - (barHeight * (item.data[k] / maxMark));
-  return { x: x, y: y }
+  var y = chartOpt.axisBottom - (barHeight * ((item.data[k] - minMark) / (maxMark - minMark)));
+  return {
+    x: x,
+    y: y
+  }
 }
+
 function drawPoint(ctx, x, y, radius, color) {
   ctx.setFillStyle(color);
   ctx.beginPath();
@@ -466,7 +482,7 @@ function getColor(index) {
 function saveCanvans(func) {
   wx.canvasToTempFilePath({
     canvasId: canvasId,
-    success: function (res) {
+    success: function(res) {
       console.log(res.tempFilePath)
       // wx.previewImage({
       //   urls: [res.tempFilePath],
